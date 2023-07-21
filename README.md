@@ -1,4 +1,4 @@
-Sono stato allenato con tutte le FAQ del sito di OVS: mettimi alla prova!
+Penso di sapere tutto su Uniting, chiedi pure!
 <html>
 <head>
     <style>
@@ -77,7 +77,7 @@ Sono stato allenato con tutte le FAQ del sito di OVS: mettimi alla prova!
 
    <script>
         // Initialize a new WebSocket connection to the server
-        const socket = new WebSocket('wss://8c54-93-35-219-181.ngrok-free.app/ws');
+        const socket = new WebSocket('wss://b111-5-168-101-100.ngrok-free.app/ws');
 
         // Connection opened
         socket.addEventListener('open', (event) => {
