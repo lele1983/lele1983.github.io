@@ -134,6 +134,10 @@ input[type=date],input[type=text],input[type=number]{border:1px solid var(--line
 .state.bad{color:var(--warn)}
 .selbtns{display:flex;gap:5px;flex-wrap:wrap}
 .selbar button.danger{color:var(--warn)}
+.sharebox{position:absolute;top:52px;right:10px;z-index:6;width:min(380px,calc(100% - 20px));display:flex;flex-direction:column;gap:8px;padding:12px;border-radius:10px;background:var(--panel);color:var(--ink);border:1px solid var(--line);box-shadow:var(--shadow)}
+.sharebox p{margin:0;font-size:13px}
+.sharebox .note{font-size:12px}
+.sharebox input{width:100%;font-family:var(--font-num);font-size:12px}
 .tip{position:absolute;left:0;top:0;pointer-events:none;font-size:12px;padding:3px 7px;border-radius:5px;background:var(--chip-bg);color:var(--chip-ink);box-shadow:0 1px 3px rgba(0,0,0,.2);white-space:nowrap}
 .busy{position:absolute;right:12px;bottom:12px;font-size:12px;padding:5px 9px;border-radius:6px;background:var(--chip-bg);color:var(--chip-ink)}
 .fatal{position:absolute;inset:0;display:grid;place-items:center;padding:24px;text-align:center;background:var(--bg);color:var(--ink)}
@@ -146,7 +150,7 @@ input[type=date],input[type=text],input[type=number]{border:1px solid var(--line
   .panel{overflow:visible}
   .views{order:3;flex-basis:100%}
   .hint{display:none}
-  .banner{top:10px;left:10px;transform:none;max-width:calc(100% - 150px)}
+  .banner{top:52px;left:10px;transform:none;max-width:calc(100% - 20px)}
   .selbar{max-width:calc(100% - 24px);bottom:66px}
   .legend{bottom:66px;left:12px;width:calc(100% - 24px)}
 }
@@ -232,7 +236,7 @@ input[type=date],input[type=text],input[type=number]{border:1px solid var(--line
         </div>
         <p class="note" id="propStatus"></p>
       </div>
-      <p class="note" id="propOffline" hidden>In questa versione la disposizione su cui lavori resta salvata solo nel tuo browser.</p>
+      <p class="note" id="propOffline" hidden>Le proposte restano salvate in questo browser. Per farle vedere a qualcuno usa «Copia link»: il link porta con sé la disposizione.</p>
       <ul class="props" id="propList"></ul>
       <div class="row">
         <button type="button" class="btn" id="loadExample">Carica l'esempio</button>
@@ -247,6 +251,7 @@ input[type=date],input[type=text],input[type=number]{border:1px solid var(--line
     <p class="hint" id="hint"></p>
     <div class="banner" id="banner" hidden></div>
     <div class="tools">
+      <button type="button" id="btnShare">Condividi</button>
       <button type="button" id="btnUndo" disabled>Annulla</button>
       <button type="button" id="btnQuotes" aria-pressed="true">Quote</button>
     </div>
@@ -269,6 +274,12 @@ input[type=date],input[type=text],input[type=number]{border:1px solid var(--line
         <button type="button" id="dup" title="Duplica (D)">Duplica</button>
         <button type="button" id="del" class="danger" title="Elimina (Canc)">Elimina</button>
       </div>
+    </div>
+    <div class="sharebox" id="sharebox" hidden role="dialog" aria-label="Condividi la disposizione">
+      <p id="shareStatus"></p>
+      <input type="text" id="shareUrl" readonly aria-label="Link della disposizione">
+      <div class="row"><button type="button" class="btn" id="shareCopy">Copia di nuovo</button><button type="button" class="btn" id="shareClose">Chiudi</button></div>
+      <p class="note">Chi apre il link vede questa disposizione su lele1983.github.io. Se la cambia, le sue modifiche restano nel suo browser e la tua non si tocca.</p>
     </div>
     <div class="tip" id="tip" hidden></div>
     <div class="busy" id="busy" hidden>Calcolo le ore di sole…</div>
@@ -2352,8 +2363,11 @@ function updateHint(){
 }
 function updateBanner(){
   const b=$('#banner'); b.innerHTML='';
+  if(S.sharedView){ const s=document.createElement('span'); s.textContent='Disposizione condivisa'+(S.sharedName?': «'+S.sharedName+'»':'')+'. Se la cambi, le modifiche restano solo nel tuo browser.'; b.append(s);
+    if(store.get(LS_KEY+'.prima')){ const btn=document.createElement('button'); btn.type='button'; btn.textContent='Torna alla mia'; btn.onclick=restorePrev; b.append(btn); }
+    const x=document.createElement('button'); x.type='button'; x.textContent='OK'; x.onclick=()=>{ S.sharedView=false; updateBanner(); }; b.append(x); b.hidden=false; return; }
   if(S.isExample){ const s=document.createElement('span'); s.textContent='Disposizione di esempio: spostala, cambiala o svuota il giardino.'; const btn=document.createElement('button'); btn.type='button'; btn.textContent='Svuota'; btn.onclick=()=>{ pushUndo(snapshot()); S.items=[]; S.sel=null; syncFurniture(); updateClearance(); changed(); }; b.append(s,btn); b.hidden=false; }
-  else if(S.propName){ const s=document.createElement('span'); s.textContent='Proposta: '+S.propName+(S.dirty?' · modifiche non salvate':''); b.append(s); if(S.dirty&&db){ const btn=document.createElement('button'); btn.type='button'; btn.textContent='Salva'; btn.onclick=()=>overwrite(S.propId); b.append(btn); } b.hidden=false; }
+  else if(S.propName){ const s=document.createElement('span'); s.textContent='Proposta: '+S.propName+(S.dirty?' · modifiche non salvate':''); b.append(s); if(S.dirty&&S.propId){ const btn=document.createElement('button'); btn.type='button'; btn.textContent='Salva'; btn.onclick=()=>overwrite(S.propId); b.append(btn); } b.hidden=false; }
   else b.hidden=true;
 }
 function buildCatalog(){
@@ -2458,37 +2472,76 @@ function exampleItems(){
   return L;
 }
 
-/* ---------- proposte (database condiviso) ---------- */
+/* ---------- proposte: database su claude.ai, browser altrove; link che porta la disposizione ---------- */
 let db=null, proposals=[], confirmDel=null;
+const LP_KEY='giardino3d.proposte';
+const SHARE_BASE=/(^|\.)lele1983\.github\.io$/.test(location.hostname)?(location.origin+location.pathname):'https://lele1983.github.io/';
+const DIM_KEYS=['gW','gD','casa','muro','risW','risL','cortD','pav','scala','hMuro','hStrada','hGarage','hCortile'];
+const num=v=>String(+(+v).toFixed(2));
+function b64e(str){ const b=new TextEncoder().encode(str); let o=''; for(let i=0;i<b.length;i++) o+=String.fromCharCode(b[i]); return btoa(o).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
+function b64d(str){ str=str.replace(/-/g,'+').replace(/_/g,'/'); while(str.length%4) str+='='; const bin=atob(str); const b=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) b[i]=bin.charCodeAt(i); return new TextDecoder().decode(b); }
+function shareLink(st){
+  const txt=['1',encodeURIComponent(st.nome||''),st.mode==='attuale'?'a':'p',num(st.north||0),
+    DIM_KEYS.map(k=>num(st.dims&&isFinite(st.dims[k])?st.dims[k]:DEF_DIMS[k])).join(','),
+    (st.items||[]).filter(i=>DEF[i.t]).map(i=>i.t+','+num(i.x)+','+num(i.z)+','+Math.round(i.r||0)).join(';')].join('|');
+  return SHARE_BASE+'#g1.'+b64e(txt);
+}
+function parseShare(h){
+  const m=/^#g1\.([A-Za-z0-9_-]{4,})$/.exec(h||''); if(!m) return null;
+  try{
+    const p=b64d(m[1]).split('|'); if(p[0]!=='1'||p.length<6) return null;
+    const dims={}; p[4].split(',').forEach((v,i)=>{ const k=DIM_KEYS[i], f=parseFloat(v); if(k&&isFinite(f)) dims[k]=f; });
+    const items=(p[5]?p[5].split(';'):[]).slice(0,400).map(q=>{ const a=q.split(','); return {id:uid(),t:a[0],x:parseFloat(a[1]),z:parseFloat(a[2]),r:parseFloat(a[3])||0}; }).filter(i=>DEF[i.t]&&isFinite(i.x)&&isFinite(i.z));
+    return {nome:decodeURIComponent(p[1]||''),mode:p[2]==='a'?'attuale':'progetto',north:clamp(parseFloat(p[3])||0,-60,60),dims,items};
+  }catch(e){ return null; }
+}
+function shareOut(url){
+  const box=$('#sharebox'), inp=$('#shareUrl'), st=$('#shareStatus');
+  inp.value=url; box.hidden=false; st.textContent='Copio il link…';
+  const done=ok=>{ st.textContent=ok?'Link copiato: incollalo in un messaggio o in una mail.':'Non riesco a copiarlo da qui: seleziona il link e copialo.'; if(!ok){ inp.focus(); inp.select(); } };
+  try{ navigator.clipboard.writeText(url).then(()=>done(true),()=>done(false)); }catch(e){ done(false); }
+}
+function restorePrev(){ const p=store.get(LS_KEY+'.prima'); if(!p) return; store.set(LS_KEY,p); try{ localStorage.removeItem(LS_KEY+'.prima'); }catch(e){} location.reload(); }
+$('#btnShare').addEventListener('click',()=>shareOut(shareLink({nome:S.propName||'',mode:S.mode,north:S.north,dims:S.dims,items:S.items})));
+$('#shareCopy').addEventListener('click',()=>shareOut($('#shareUrl').value));
+$('#shareClose').addEventListener('click',()=>{ $('#sharebox').hidden=true; });
+
 function propStatus(t){ $('#propStatus').textContent=t||''; }
-function propBody(name){ return {nome:name,items:S.items.map(i=>({t:i.t,x:+(+i.x).toFixed(3),z:+(+i.z).toFixed(3),r:i.r||0})),dims:Object.assign({},S.dims),arredi:S.items.length,aggiornata:new Date().toISOString()}; }
+function propBody(name){ return {nome:name,items:S.items.map(i=>({t:i.t,x:+(+i.x).toFixed(3),z:+(+i.z).toFixed(3),r:i.r||0})),dims:Object.assign({},S.dims),mode:S.mode,north:S.north,arredi:S.items.length,aggiornata:new Date().toISOString()}; }
 function dbErr(e){ const c=e&&e.code; if(c==='invalid_argument') propStatus('Non puoi salvare qui: hai l’accesso in sola lettura.'); else if(c==='quota_exceeded') propStatus('Lo spazio delle proposte è pieno: eliminane qualcuna.'); else propStatus('Salvataggio non riuscito, riprova tra poco.'); }
+function readLocalProps(){ const a=store.get(LP_KEY); return Array.isArray(a)?a.filter(p=>p&&p.id):[]; }
+function writeLocalProps(a){ a.sort((x,y)=>String(y.aggiornata||'').localeCompare(String(x.aggiornata||''))); store.set(LP_KEY,a); proposals=a; renderProps(); }
+async function propAdd(body){ if(db){ const ref=await db.collection('proposte').add(body); return ref.id; } const id=uid(); writeLocalProps([Object.assign({id},body)].concat(readLocalProps())); return id; }
+async function propSet(id,body){ if(db){ await db.doc('proposte/'+id).set(body); return; } writeLocalProps(readLocalProps().map(p=>p.id===id?Object.assign({id},body):p)); }
+async function propDel(id){ if(db){ await db.doc('proposte/'+id).delete(); return; } writeLocalProps(readLocalProps().filter(p=>p.id!==id)); }
 async function saveNew(){
-  if(!db) return; const name=($('#propName').value||'').trim()||('Proposta '+(proposals.length+1));
+  const name=($('#propName').value||'').trim()||('Proposta '+(proposals.length+1));
   $('#propSave').disabled=true;
-  try{ const ref=await db.collection('proposte').add(propBody(name)); S.propId=ref.id; S.propName=name; S.dirty=false; S.isExample=false; $('#propName').value=''; propStatus('Salvata come «'+name+'».'); saveLocal(); updateBanner(); renderProps(); }
+  try{ const id=await propAdd(propBody(name)); S.propId=id; S.propName=name; S.dirty=false; S.isExample=false; S.sharedView=false; $('#propName').value=''; propStatus('Salvata come «'+name+'».'); saveLocal(); updateBanner(); renderProps(); }
   catch(e){ dbErr(e); } finally{ $('#propSave').disabled=false; }
 }
 async function overwrite(id){
-  if(!db) return; const p=proposals.find(x=>x.id===id); if(!p) return;
-  try{ await db.doc('proposte/'+id).set(propBody(p.nome)); S.propId=id; S.propName=p.nome; S.dirty=false; propStatus('Aggiornata «'+p.nome+'».'); saveLocal(); updateBanner(); renderProps(); }catch(e){ dbErr(e); }
+  const p=proposals.find(x=>x.id===id); if(!p) return;
+  try{ await propSet(id,propBody(p.nome)); S.propId=id; S.propName=p.nome; S.dirty=false; propStatus('Aggiornata «'+p.nome+'».'); saveLocal(); updateBanner(); renderProps(); }catch(e){ dbErr(e); }
 }
 function openProp(id){
   const p=proposals.find(x=>x.id===id); if(!p) return;
   pushUndo(snapshot());
   S.items=(Array.isArray(p.items)?p.items:[]).filter(i=>i&&DEF[i.t]).map(i=>({id:uid(),t:i.t,x:+i.x||0,z:+i.z||0,r:+i.r||0}));
-  if(p.dims&&typeof p.dims==='object'){ for(const k in DEF_DIMS) if(isFinite(p.dims[k])) S.dims[k]=+p.dims[k]; buildDims(); G=derive(); buildStatic(); }
-  S.sel=null; S.propId=id; S.propName=p.nome; S.dirty=false; S.isExample=false;
+  if(p.mode==='attuale'||p.mode==='progetto'){ S.mode=p.mode; $$('.seg button').forEach(x=>x.setAttribute('aria-pressed',String(x.dataset.mode===S.mode))); }
+  if(isFinite(p.north)){ S.north=clamp(+p.north,-60,60); $('#north').value=S.north; $('#northOut').textContent=(S.north>0?'+':'')+S.north+'°'; updateSun(); }
+  if(p.dims&&typeof p.dims==='object'){ for(const k in DEF_DIMS) if(isFinite(p.dims[k])) S.dims[k]=+p.dims[k]; buildDims(); }
+  G=derive(); buildStatic();
+  S.sel=null; S.propId=id; S.propName=p.nome; S.dirty=false; S.isExample=false; S.sharedView=false;
   syncFurniture(); updateClearance(); saveLocal(); updateBanner(); renderProps(); scheduleSunMap(); propStatus('Aperta «'+p.nome+'».');
 }
 async function removeProp(id,btn){
   if(confirmDel!==id){ confirmDel=id; btn.textContent='Conferma'; btn.classList.add('confirm'); setTimeout(()=>{ if(confirmDel===id){ confirmDel=null; renderProps(); } },4000); return; }
   confirmDel=null;
-  try{ await db.doc('proposte/'+id).delete(); if(S.propId===id){ S.propId=null; S.propName=null; updateBanner(); saveLocal(); } propStatus('Proposta eliminata.'); }catch(e){ dbErr(e); }
+  try{ await propDel(id); if(S.propId===id){ S.propId=null; S.propName=null; updateBanner(); saveLocal(); } propStatus('Proposta eliminata.'); }catch(e){ dbErr(e); }
 }
 function renderProps(){
   const ul=$('#propList'); ul.innerHTML='';
-  if(!db) return;
   if(!proposals.length){ const li=document.createElement('li'); li.className='empty'; li.textContent='Nessuna proposta salvata. Disponi gli arredi, dai un nome e premi Salva.'; ul.append(li); return; }
   for(const p of proposals){
     const li=document.createElement('li'); if(p.id===S.propId) li.className='cur';
@@ -2497,16 +2550,17 @@ function renderProps(){
     m.textContent=(p.arredi!=null?p.arredi:(p.items||[]).length)+' arredi'+(d&&!isNaN(d)?' · '+d.getDate()+' '+MESI[d.getMonth()].slice(0,3)+', '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'):'');
     const row=document.createElement('div'); row.className='row';
     const bo=document.createElement('button'); bo.type='button'; bo.className='btn'; bo.textContent='Apri'; bo.onclick=()=>openProp(p.id);
+    const bk=document.createElement('button'); bk.type='button'; bk.className='btn'; bk.textContent='Copia link'; bk.onclick=()=>shareOut(shareLink({nome:p.nome,mode:p.mode||S.mode,north:isFinite(p.north)?p.north:S.north,dims:p.dims||S.dims,items:p.items||[]}));
     const bu=document.createElement('button'); bu.type='button'; bu.className='btn'; bu.textContent='Sovrascrivi con quella attuale'; bu.onclick=()=>overwrite(p.id);
     const bd=document.createElement('button'); bd.type='button'; bd.className='btn danger'; bd.textContent=confirmDel===p.id?'Conferma':'Elimina'; if(confirmDel===p.id) bd.classList.add('confirm'); bd.onclick=()=>removeProp(p.id,bd);
-    row.append(bo,bu,bd); li.append(n,m,row); ul.append(li);
+    row.append(bo,bk,bu,bd); li.append(n,m,row); ul.append(li);
   }
 }
 async function initDb(){
   const cl=window.claude;
   if(cl&&typeof cl.use==='function'){ try{ db=await cl.use('db'); }catch(e){ db=null; } }
-  $('#saveBlock').hidden=!db; $('#propOffline').hidden=!!db;
-  if(!db){ renderProps(); return; }
+  $('#propOffline').hidden=!!db;
+  if(!db){ proposals=readLocalProps(); renderProps(); updateBanner(); return; }
   db.collection('proposte').orderBy('aggiornata','desc').onSnapshot(snap=>{ proposals=snap.docs.map(d=>Object.assign({id:d.id},d.data())); renderProps(); updateBanner(); },err=>{ propStatus('Non riesco a leggere le proposte salvate.'); });
   updateBanner();
 }
@@ -2535,6 +2589,16 @@ function loop(now){
 }
 
 /* ---------- avvio ---------- */
+(function(){
+  const sh=parseShare(location.hash); if(!sh) return;
+  const prev=store.get(LS_KEY); if(prev&&Array.isArray(prev.items)&&prev.items.length&&!prev.isExample) store.set(LS_KEY+'.prima',prev);
+  for(const f of DIM_FIELDS){ if(isFinite(sh.dims[f.k])) S.dims[f.k]=clamp(sh.dims[f.k],f.min,f.max); }
+  S.items=sh.items; S.mode=sh.mode; S.north=sh.north; S.propId=null; S.propName=null; S.isExample=false; S.dirty=false;
+  S.sharedView=true; S.sharedName=sh.nome||'';
+  G=derive();
+  try{ history.replaceState(null,'',location.pathname+location.search); }catch(e){}
+  setTimeout(saveLocal,0);
+})();
 buildCatalog(); buildDims();
 $$('.seg button').forEach(x=>x.setAttribute('aria-pressed',String(x.dataset.mode===S.mode)));
 $('#btnQuotes').setAttribute('aria-pressed',String(S.quotes));
