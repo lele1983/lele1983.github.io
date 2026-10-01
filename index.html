@@ -2505,6 +2505,7 @@ function restorePrev(){ const p=store.get(LS_KEY+'.prima'); if(!p) return; store
 $('#btnShare').addEventListener('click',()=>shareOut(shareLink({nome:S.propName||'',mode:S.mode,north:S.north,dims:S.dims,items:S.items})));
 $('#shareCopy').addEventListener('click',()=>shareOut($('#shareUrl').value));
 $('#shareClose').addEventListener('click',()=>{ $('#sharebox').hidden=true; });
+window.addEventListener('hashchange',()=>{ if(parseShare(location.hash)) location.reload(); });
 
 function propStatus(t){ $('#propStatus').textContent=t||''; }
 function propBody(name){ return {nome:name,items:S.items.map(i=>({t:i.t,x:+(+i.x).toFixed(3),z:+(+i.z).toFixed(3),r:i.r||0})),dims:Object.assign({},S.dims),mode:S.mode,north:S.north,arredi:S.items.length,aggiornata:new Date().toISOString()}; }
